@@ -17,7 +17,7 @@
     }
 
     body {
-      background: radial-gradient(circle at top, #1a1b3a 0%, #0a0a18 60%, #050509 100%);
+      background: radial-gradient(circle at top, #20245c 0%, #0a0a18 55%, #050509 100%);
       color: #e5e7ff;
       min-height: 100vh;
       display: grid;
@@ -63,7 +63,7 @@
       border-radius: 22px;
       overflow: hidden;
       box-shadow: 0 30px 60px rgba(3, 4, 18, 0.75);
-      background: #05050c;
+      background: #03040d;
     }
 
     canvas {
@@ -118,7 +118,7 @@
     <header>
       <div>
         <h1>Neon Rush</h1>
-        <p>Ночная трасса, ускорение, неоновые обочины. Уходи от трафика, собирай ускорения и набирай очки.</p>
+        <p>Ночная трасса с псевдо‑3D перспективой, ускорение и неоновые обочины. Уходи от трафика, собирай ускорения и набирай очки.</p>
       </div>
       <div class="hud">
         <div>Скорость: <span id="speed">0</span> км/ч</div>
@@ -132,7 +132,7 @@
       <div id="overlay" class="overlay">
         <div>
           <h2>Готов к заезду?</h2>
-          <p>Нажми «Старт» или пробел. Удерживай Shift для ускорения, избегай машин.</p>
+          <p>Нажми «Старт» или пробел. Удерживай Shift для ускорения, резко маневрируй и избегай машин.</p>
         </div>
         <button id="start">Старт</button>
       </div>
@@ -159,12 +159,16 @@
       distance: 0,
       best: Number(localStorage.getItem("neon-best") || 0),
       laneCount: 3,
-      lanes: [],
+      road: {
+        topWidth: 140,
+        bottomWidth: 640,
+        horizon: canvas.height * 0.22,
+      },
       car: {
         lane: 1,
         offset: 0,
-        width: 70,
-        height: 120,
+        width: 76,
+        height: 130,
         tilt: 0,
       },
       obstacles: [],
@@ -179,11 +183,30 @@
 
     bestEl.textContent = state.best.toFixed(0);
 
-    const lanePositions = () => {
-      const roadWidth = canvas.width * 0.55;
-      const left = (canvas.width - roadWidth) / 2;
-      const laneWidth = roadWidth / state.laneCount;
-      return Array.from({ length: state.laneCount }, (_, i) => left + laneWidth * (i + 0.5));
+    const lerp = (from, to, t) => from + (to - from) * t;
+
+    const roadWidthAt = (y) => {
+      const t = Math.max(0, Math.min(1, (y - state.road.horizon) / (canvas.height - state.road.horizon)));
+      return lerp(state.road.topWidth, state.road.bottomWidth, t);
+    };
+
+    const laneCenterAt = (lane, y) => {
+      const width = roadWidthAt(y);
+      const left = canvas.width / 2 - width / 2;
+      const laneWidth = width / state.laneCount;
+      return left + laneWidth * (lane + 0.5);
+    };
+
+    const laneDividerAt = (lane, y) => {
+      const width = roadWidthAt(y);
+      const left = canvas.width / 2 - width / 2;
+      const laneWidth = width / state.laneCount;
+      return left + laneWidth * lane;
+    };
+
+    const scaleAt = (y) => {
+      const t = Math.max(0, Math.min(1, (y - state.road.horizon) / (canvas.height - state.road.horizon)));
+      return lerp(0.45, 1.05, t);
     };
 
     const reset = () => {
@@ -198,7 +221,7 @@
       state.lastBoost = 0;
       state.shake = 0;
       state.time = 0;
-      state.lanes = lanePositions();
+      state.road.horizon = canvas.height * 0.22;
     };
 
     const spawnObstacle = () => {
@@ -239,24 +262,24 @@
 
       const boostActive = keys.has("Shift");
       const manualBoost = keys.has("ArrowUp") || keys.has("KeyW");
-      state.targetSpeed = boostActive ? 260 : manualBoost ? 200 : 160;
-      state.speed += (state.targetSpeed - state.speed) * 0.08;
+      state.targetSpeed = boostActive ? 280 : manualBoost ? 210 : 170;
+      state.speed += (state.targetSpeed - state.speed) * 0.1;
       state.distance += state.speed * (delta / 1000);
 
       if (keys.has("ArrowLeft") || keys.has("KeyA")) {
-        state.car.offset -= 0.08 * delta;
-        state.car.tilt = -0.15;
+        state.car.offset -= 0.14 * delta;
+        state.car.tilt = -0.22;
       } else if (keys.has("ArrowRight") || keys.has("KeyD")) {
-        state.car.offset += 0.08 * delta;
-        state.car.tilt = 0.15;
+        state.car.offset += 0.14 * delta;
+        state.car.tilt = 0.22;
       } else {
-        state.car.offset *= 0.85;
-        state.car.tilt *= 0.9;
+        state.car.offset *= 0.8;
+        state.car.tilt *= 0.86;
       }
 
-      state.car.offset = Math.max(-120, Math.min(120, state.car.offset));
+      state.car.offset = Math.max(-180, Math.min(180, state.car.offset));
 
-      if (state.time - state.lastSpawn > 900) {
+      if (state.time - state.lastSpawn > 760) {
         spawnObstacle();
         state.lastSpawn = state.time;
       }
@@ -279,14 +302,16 @@
       state.obstacles = state.obstacles.filter((obs) => obs.y < canvas.height + 140);
       state.boosts = state.boosts.filter((boost) => boost.y < canvas.height + 80);
 
-      const carX = state.lanes[state.car.lane] + state.car.offset;
-      const carY = canvas.height - 150;
+      const carY = canvas.height - 140;
+      const carX = laneCenterAt(state.car.lane, carY) + state.car.offset;
+      const carScale = scaleAt(carY);
 
       for (const obs of state.obstacles) {
-        const obsX = state.lanes[obs.lane];
+        const obsX = laneCenterAt(obs.lane, obs.y);
+        const obsScale = scaleAt(obs.y);
         if (
-          Math.abs(obsX - carX) < (obs.width + state.car.width) * 0.4 &&
-          Math.abs(obs.y - carY) < (obs.height + state.car.height) * 0.35
+          Math.abs(obsX - carX) < (obs.width * obsScale + state.car.width * carScale) * 0.38 &&
+          Math.abs(obs.y - carY) < (obs.height * obsScale + state.car.height * carScale) * 0.32
         ) {
           end();
           break;
@@ -294,10 +319,14 @@
       }
 
       for (const boost of state.boosts) {
-        const boostX = state.lanes[boost.lane];
-        if (Math.abs(boostX - carX) < boost.radius + 30 && Math.abs(boost.y - carY) < boost.radius + 40) {
+        const boostX = laneCenterAt(boost.lane, boost.y);
+        const boostScale = scaleAt(boost.y);
+        if (
+          Math.abs(boostX - carX) < boost.radius * boostScale + 34 &&
+          Math.abs(boost.y - carY) < boost.radius * boostScale + 46
+        ) {
           state.shake = 12;
-          state.speed = Math.min(state.speed + 60, 320);
+          state.speed = Math.min(state.speed + 70, 330);
           boost.y = canvas.height + 100;
         }
       }
@@ -311,81 +340,123 @@
     };
 
     const drawRoad = () => {
-      const roadWidth = canvas.width * 0.55;
-      const left = (canvas.width - roadWidth) / 2;
-      const right = left + roadWidth;
-      const laneWidth = roadWidth / state.laneCount;
-      const horizon = canvas.height * 0.25;
+      const horizon = state.road.horizon;
+      const bottomWidth = state.road.bottomWidth;
+      const topWidth = state.road.topWidth;
+      const leftBottom = canvas.width / 2 - bottomWidth / 2;
+      const rightBottom = canvas.width / 2 + bottomWidth / 2;
+      const leftTop = canvas.width / 2 - topWidth / 2;
+      const rightTop = canvas.width / 2 + topWidth / 2;
 
-      ctx.fillStyle = "#05050c";
-      ctx.fillRect(0, 0, canvas.width, canvas.height);
+      const sky = ctx.createLinearGradient(0, 0, 0, horizon);
+      sky.addColorStop(0, "#2a2f6b");
+      sky.addColorStop(0.5, "#141839");
+      sky.addColorStop(1, "#0a0b18");
+      ctx.fillStyle = sky;
+      ctx.fillRect(0, 0, canvas.width, horizon + 40);
 
-      const gradient = ctx.createLinearGradient(0, 0, 0, canvas.height);
-      gradient.addColorStop(0, "#1e1b3f");
-      gradient.addColorStop(0.45, "#100f24");
-      gradient.addColorStop(1, "#050509");
-      ctx.fillStyle = gradient;
-      ctx.fillRect(left - 120, 0, roadWidth + 240, canvas.height);
-
-      ctx.fillStyle = "#0d1124";
-      ctx.fillRect(left, horizon, roadWidth, canvas.height - horizon);
-
-      ctx.strokeStyle = "rgba(88, 97, 190, 0.5)";
-      ctx.lineWidth = 8;
+      ctx.fillStyle = "rgba(116, 126, 255, 0.1)";
       ctx.beginPath();
-      ctx.moveTo(left, horizon);
-      ctx.lineTo(left + 20, canvas.height);
-      ctx.moveTo(right, horizon);
-      ctx.lineTo(right - 20, canvas.height);
+      ctx.ellipse(canvas.width * 0.5, horizon + 40, 220, 60, 0, 0, Math.PI * 2);
+      ctx.fill();
+
+      ctx.fillStyle = "#0a0b1e";
+      for (let i = 0; i < 6; i += 1) {
+        const height = 50 + i * 18;
+        const width = 120 + i * 30;
+        ctx.fillRect(90 + i * 140, horizon - height, width, height);
+      }
+
+      ctx.fillStyle = "#070812";
+      ctx.fillRect(0, horizon, canvas.width, canvas.height - horizon);
+
+      ctx.fillStyle = "#0e1227";
+      ctx.beginPath();
+      ctx.moveTo(leftTop, horizon);
+      ctx.lineTo(rightTop, horizon);
+      ctx.lineTo(rightBottom, canvas.height);
+      ctx.lineTo(leftBottom, canvas.height);
+      ctx.closePath();
+      ctx.fill();
+
+      ctx.strokeStyle = "rgba(120, 130, 255, 0.6)";
+      ctx.lineWidth = 6;
+      ctx.beginPath();
+      ctx.moveTo(leftTop, horizon);
+      ctx.lineTo(leftBottom, canvas.height);
+      ctx.moveTo(rightTop, horizon);
+      ctx.lineTo(rightBottom, canvas.height);
       ctx.stroke();
 
-      ctx.strokeStyle = "rgba(160, 172, 255, 0.45)";
-      ctx.lineWidth = 4;
-      for (let i = 1; i < state.laneCount; i += 1) {
-        const laneX = left + laneWidth * i;
-        ctx.setLineDash([30, 30]);
+      for (let lane = 1; lane < state.laneCount; lane += 1) {
+        ctx.strokeStyle = "rgba(186, 196, 255, 0.5)";
+        ctx.lineWidth = 3;
+        ctx.setLineDash([18, 22]);
         ctx.beginPath();
-        ctx.moveTo(laneX, horizon);
-        ctx.lineTo(laneX + (i % 2 === 0 ? 20 : -20), canvas.height);
+        ctx.moveTo(laneDividerAt(lane, horizon), horizon);
+        ctx.lineTo(laneDividerAt(lane, canvas.height), canvas.height);
         ctx.stroke();
       }
       ctx.setLineDash([]);
 
       ctx.fillStyle = "rgba(255, 255, 255, 0.08)";
-      for (let i = 0; i < 80; i += 1) {
-        const y = ((i * 160 + state.distance * 6) % canvas.height) - 200;
-        const xOffset = Math.sin((i + state.distance * 0.02) * 0.6) * 60;
-        ctx.fillRect(left - 90 + xOffset, y, 12, 60);
-        ctx.fillRect(right + 78 + xOffset, y, 12, 60);
+      for (let i = 0; i < 70; i += 1) {
+        const y = ((i * 160 + state.distance * 6) % canvas.height) - 260;
+        const width = 14 * scaleAt(y + horizon);
+        const height = 60 * scaleAt(y + horizon);
+        ctx.fillRect(leftBottom - 90 - width, y, width, height);
+        ctx.fillRect(rightBottom + 90, y, width, height);
       }
     };
 
-    const drawCar = (x, y, width, height, color, tilt = 0) => {
+    const drawCar = (x, y, width, height, color, tilt = 0, scale = 1) => {
       ctx.save();
       ctx.translate(x, y);
       ctx.rotate(tilt);
-      ctx.fillStyle = color;
+      ctx.scale(scale, scale);
+
+      const bodyGradient = ctx.createLinearGradient(0, -height / 2, 0, height / 2);
+      bodyGradient.addColorStop(0, "#fdf2ff");
+      bodyGradient.addColorStop(0.2, color);
+      bodyGradient.addColorStop(1, "#1a1d3a");
+
+      ctx.fillStyle = bodyGradient;
       ctx.beginPath();
       ctx.roundRect(-width / 2, -height / 2, width, height, 18);
       ctx.fill();
-      ctx.fillStyle = "rgba(255,255,255,0.25)";
-      ctx.fillRect(-width * 0.25, -height * 0.3, width * 0.5, height * 0.4);
-      ctx.fillStyle = "rgba(255,255,255,0.4)";
-      ctx.fillRect(-width * 0.4, -height * 0.45, width * 0.8, height * 0.08);
+
+      ctx.fillStyle = "rgba(8, 10, 24, 0.6)";
+      ctx.fillRect(-width * 0.45, -height * 0.35, width * 0.9, height * 0.25);
+
+      ctx.fillStyle = "rgba(255,255,255,0.45)";
+      ctx.fillRect(-width * 0.25, -height * 0.45, width * 0.5, height * 0.12);
+
+      ctx.fillStyle = "#070812";
+      ctx.fillRect(-width * 0.5, height * 0.2, width * 0.18, height * 0.28);
+      ctx.fillRect(width * 0.32, height * 0.2, width * 0.18, height * 0.28);
+
+      ctx.strokeStyle = "rgba(255, 120, 200, 0.8)";
+      ctx.lineWidth = 3;
+      ctx.beginPath();
+      ctx.moveTo(-width * 0.35, height * 0.38);
+      ctx.lineTo(width * 0.35, height * 0.38);
+      ctx.stroke();
+
       ctx.restore();
     };
 
-    const drawBoost = (x, y, radius) => {
+    const drawBoost = (x, y, radius, scale = 1) => {
       ctx.save();
       ctx.translate(x, y);
+      ctx.scale(scale, scale);
       const pulse = 0.6 + Math.sin(state.time * 0.01) * 0.4;
       ctx.fillStyle = "rgba(96, 255, 209, 0.25)";
       ctx.beginPath();
-      ctx.arc(0, 0, radius * 1.6 * pulse, 0, Math.PI * 2);
+      ctx.arc(0, 0, radius * 1.9 * pulse, 0, Math.PI * 2);
       ctx.fill();
       ctx.fillStyle = "#4fffb8";
       ctx.beginPath();
-      ctx.arc(0, 0, radius * 0.9, 0, Math.PI * 2);
+      ctx.arc(0, 0, radius * 0.95, 0, Math.PI * 2);
       ctx.fill();
       ctx.restore();
     };
@@ -399,16 +470,18 @@
       drawRoad();
 
       state.boosts.forEach((boost) => {
-        drawBoost(state.lanes[boost.lane], boost.y, boost.radius);
+        const scale = scaleAt(boost.y);
+        drawBoost(laneCenterAt(boost.lane, boost.y), boost.y, boost.radius, scale);
       });
 
       state.obstacles.forEach((obs) => {
-        drawCar(state.lanes[obs.lane], obs.y, obs.width, obs.height, obs.color);
+        const scale = scaleAt(obs.y);
+        drawCar(laneCenterAt(obs.lane, obs.y), obs.y, obs.width, obs.height, obs.color, 0, scale);
       });
 
-      const carX = state.lanes[state.car.lane] + state.car.offset;
-      const carY = canvas.height - 150;
-      drawCar(carX, carY, state.car.width, state.car.height, "#7b5bff", state.car.tilt);
+      const carY = canvas.height - 140;
+      const carX = laneCenterAt(state.car.lane, carY) + state.car.offset;
+      drawCar(carX, carY, state.car.width, state.car.height, "#7b5bff", state.car.tilt, scaleAt(carY));
 
       ctx.restore();
 
